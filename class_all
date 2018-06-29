@@ -1,0 +1,399 @@
+"""
+Location:     /Work/Mergers/Maps/classes
+Created:      2017 Tue May 22 11:45:49
+Last update:  2017 Tue May 22 11:45:49
+Author:       Jorge Moreno (jorge.moreno@pomona.edu)
+Status:       New
+Requirements: Access to /Runs/FIRE_Mergers/Runs and vogelsbergerlabtools
+Clients:      client_write_total_gas_evolution.py
+Reference:    ./Evolution/classes/class_write_total_gas_evolution.py
+"""
+
+######### IMPORT ############################################
+
+import glob
+import numpy as np
+import simread.readsnapHDF5 as simread
+import units
+import h5py
+import os
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
+import matplotlib.cm     as cm
+import matplotlib.colors as colors
+from matplotlib.colors import LogNorm
+import copy
+import matplotlib.ticker as ticker
+from matplotlib import rc
+import math
+from math imoport *
+
+fontsize = 14
+
+######### CLASS #############################################
+
+class CreateMap:
+    
+    """This creates maps of interacting galaxies for each time snapshot."""
+
+    ######## INIT ###########################################
+
+    def __init__(self, path, **kwargs):
+        
+        self.path = path
+        self._prepare_snapshot_list()
+
+    ######################################################## create two more containers for the raw data for each galaxy
+
+    def create_maps_for_all_snapshots(self, component='gas', box_size=50, center=None, **kwargs):
+        
+        self.box_size  = box_size
+        self.center    = center
+        [first_snapshot, last_snapshot] = [1,self.n_snapshots]
+        
+        for snapshot in np.arange(first_snapshot,last_snapshot):
+            
+            self.data_for_one_snapshot = {}
+            self._load_data_for_one_snapshot(snapshot, **kwargs)
+            self._order_bh_ids()
+            self._center_on_bh(snapshot)
+            self._create_map_for_one_snapshot(snapshot,component, **kwargs)
+            del self.data_for_one_snapshot
+
+    ########################################################
+
+    def _create_map_for_one_snapshot(self, snapshot, component, **kwargs):
+    
+        fig, ax = self._set_up_figure_for_one_map()
+        
+        ##component in components was established in the client
+        plot_x = self.data_for_one_snapshot[component+'_position'][:,0]
+        plot_y = self.data_for_one_snapshot[component+'_position'][:,1]
+        plot_z = self.data_for_one_snapshot[component+'_position'][:,2]
+        mass = self.data_for_one_snapshot[component+'_mass']/1e6
+        
+        
+        #box_size was established in the client
+        range = [[-self.box_size,self.box_size],[-self.box_size,self.box_size]]
+        #these vmin and vmax make it so that the gradient thing on the right goes from 10e-2 to 10e2, why ask
+        vmin  = 1e-2
+        vmax  = 1e2
+        #the number of points plotted, cant be too small otherwise the data will round mass in parsec to zero (1000 is too much), ~lower is more "pixelated", stellar more affected tham gas
+        bins  = 200
+        norm  = LogNorm()
+        cmaps = {'gas':'viridis','stellar':'plasma'}
+        ##shallow copy the color map for the component as in the dictionary cmaps
+        cmap  = copy.copy(matplotlib.cm.get_cmap(cmaps[component]))
+        ##ask what's going on here. set_bad is set color to be used for masked values
+        cmap.set_bad(cmap(0))
+        
+        image    = ax.hist2d(plot_x, plot_y, weights = mass, range = range, vmin = vmin, vmax = vmax, bins = bins, norm = norm, cmap = cmap)
+        #is image[3] the range? the weights? what
+        colorbar = fig.colorbar(image[3], ax=ax, norm = 'log')
+        z_labels = {'gas':r'$\Sigma_{\rm gas} {\rm \,\, [M_{\odot} \, pc^{-2}]}$','stellar':r'$\Sigma_{\rm *} {\rm \,\, [M_{\odot} \, pc^{-2}]}$'}
+        z_label  = z_labels[component]
+        colorbar.set_label(z_label, fontsize=16)
+        ##if the path doesnt exist,t his will create the maps folder and the component folders
+        if not os.path.exists('./maps'): os.mkdir('./maps')
+        if not os.path.exists('./maps'+'/'+component): os.mkdir('./maps'+'/'+component)
+
+        save_path  = './maps'+'/'+component+'/frames'+'/'
+        frame_name = 'frame_'+str(snapshot-1).zfill(4)+'.png'
+        save_file = save_path + frame_name
+        print "open", save_file
+        fig.savefig(save_file)
+        plt.close()
+        print ""
+        
+  
+  #########  ROTATIONS ########### <- download ffmoeg, have function for delta theta = 2pi/n, change box size (zoom) as function of time, change perspective as a function of time, angular momentum L = rmv; advantages of head on versus edge on view, come up with science questions; have a master code
+
+###### Calling functions for rotations ########
+    def rotate_x(self, rotate = True):
+        if rotate== True : self._rotate_x()
+        elif rotate == False :
+            print ""
+            print "Rotation about the X-axis was not completed as it was not requested."
+            print ""
+            
+    def rotate_y(self, rotate = True):
+        if rotate== True : self._rotate_y()
+        elif rotate == False :
+            print ""
+            print "Rotation about the Y-axis was not completed as it was not requested."
+            print ""
+
+    def rotate_z(self, rotate = True):
+        if rotate== True : self._rotate_z()
+        elif rotate == False :
+            print ""
+            print "Rotation about the Z-axis was not completed as it was not requested."
+            print ""
+
+#rotate about x axis, create seperate definitions for each of these
+    def _rotate_x(self, snapshot, component, **kwargs):
+        
+        theta = [0,1,2,3,4,5,6]
+        plot_x = self.data_for_one_snapshot[component+'_position'][:,0]
+        plot_y = self.data_for_one_snapshot[component+'_position'][:,1]
+        plot_z = self.data_for_one_snapshot[component+'_position'][:,2]
+        mass = self.data_for_one_snapshot[component+'_mass']/1e6
+        
+        fig, ax = self._set_up_figure_for_one_map()
+        image    = ax.hist2d(plot_x, plot_y, weights = mass, range = range, vmin = vmin, vmax = vmax, bins = bins, norm = norm, cmap = cmap)
+        fig, ax = self._set_up_figure_for_one_map()
+        colorbar = fig.colorbar(image[3], ax=ax, norm = 'log')
+        z_labels = {'gas':r'$\Sigma_{\rm gas} {\rm \,\, [M_{\odot} \, pc^{-2}]}$','stellar':r'$\Sigma_{\rm *} {\rm \,\, [M_{\odot} \, pc^{-2}]}$'}
+        z_label  = z_labels[component]
+        colorbar.set_label(z_label, fontsize=16)
+        
+
+        for i in theta:
+            rot_y = plot_y * math.cos(i) + plot_z * math.sin(i)
+      
+            range = [[-self.box_size,self.box_size],[-self.box_size,self.box_size]]
+        
+            vmin  = 1e-2
+            vmax  = 1e2
+
+            bins  = 200
+            norm  = LogNorm()
+            cmaps = {'gas':'viridis','stellar':'plasma'}
+       
+            cmap  = copy.copy(matplotlib.cm.get_cmap(cmaps[component]))
+        
+            cmap.set_bad(cmap(0))
+        
+            image    = ax.hist2d(plot_x, rot_y, weights = mass, range = range, vmin = vmin, vmax = vmax, bins = bins, norm = norm, cmap = cmap)
+
+
+        
+            if not os.path.exists('./maps'): os.mkdir('./maps')
+            if not os.path.exists('./maps'+'/'+component): os.mkdir('./maps'+'/'+component)
+        
+            save_path  = './maps'+'/'+component+'/x_rotation'+'/'
+            frame_name = 'frame_'+str(snapshot-1).zfill(4)+'_view'+str(i)+'.png'
+            save_file = save_path + frame_name
+            print "open", save_file
+            fig.savefig(save_file)
+            
+            
+            if frame_name[15] == str(i):
+                second_path = './maps'+'/'+component+'/frames/rotations_x/view '+str(i)+ '/'
+                second_name = 'frame_'+str(snapshot-1).zfill(4)+'.png'
+                second_file = second_path + second_name
+                print "open", second_file
+                fig.savefig(second_file)
+                plt.close()
+            
+            plt.close()
+            print ""
+            del rot_y
+        
+        #rotate about y axis
+    def _rotate_y(self, snapshot, component, **kwargs):
+        
+        theta = [0,1,2,3,4,5,6]
+        plot_x = self.data_for_one_snapshot[component+'_position'][:,0]
+        plot_y = self.data_for_one_snapshot[component+'_position'][:,1]
+        plot_z = self.data_for_one_snapshot[component+'_position'][:,2]
+        mass = self.data_for_one_snapshot[component+'_mass']/1e6
+        
+        fig, ax = self._set_up_figure_for_one_map()
+        image    = ax.hist2d(plot_x, plot_y, weights = mass, range = range, vmin = vmin, vmax = vmax, bins = bins, norm = norm, cmap = cmap)
+        fig, ax = self._set_up_figure_for_one_map()
+        colorbar = fig.colorbar(image[3], ax=ax, norm = 'log')
+        z_labels = {'gas':r'$\Sigma_{\rm gas} {\rm \,\, [M_{\odot} \, pc^{-2}]}$','stellar':r'$\Sigma_{\rm *} {\rm \,\, [M_{\odot} \, pc^{-2}]}$'}
+        z_label  = z_labels[component]
+        colorbar.set_label(z_label, fontsize=16)
+        
+
+        for i in theta:
+            rot_x = plot_x * math.cos(i) + plot_z * math.sin(i)
+      
+            range = [[-self.box_size,self.box_size],[-self.box_size,self.box_size]]
+        
+            vmin  = 1e-2
+            vmax  = 1e2
+
+            bins  = 200
+            norm  = LogNorm()
+            cmaps = {'gas':'viridis','stellar':'plasma'}
+       
+            cmap  = copy.copy(matplotlib.cm.get_cmap(cmaps[component]))
+        
+            cmap.set_bad(cmap(0))
+        
+            image    = ax.hist2d(rot_x, plot_y, weights = mass, range = range, vmin = vmin, vmax = vmax, bins = bins, norm = norm, cmap = cmap)
+
+
+
+            if not os.path.exists('./maps'): os.mkdir('./maps')
+            if not os.path.exists('./maps'+'/'+component): os.mkdir('./maps'+'/'+component)
+        
+            save_path  = './maps'+'/'+component+'/y_rotation'+'/'
+            frame_name = 'frame_'+str(snapshot-1).zfill(4)+'_view'+str(i)+'.png'
+            save_file = save_path + frame_name
+            print "open", save_file
+            fig.savefig(save_file)
+            
+            print ""
+    
+        #saving persepective over time
+            if frame_name[15] == str(i):
+                second_path = './maps'+'/'+component+'/frames/rotations_y/view '+str(i)+ '/'
+                second_name = 'frame_'+str(snapshot-1).zfill(4)+'.png'
+                second_file = second_path + second_name
+                print "open", second_file
+                fig.savefig(second_file)
+                plt.close()
+            del rot_x
+        
+        #rotate about z axis
+    def _rotate_z(self, snapshot, component, **kwargs):
+        
+        theta = [0,1,2,3,4,5,6]
+        plot_x = self.data_for_one_snapshot[component+'_position'][:,0]
+        plot_y = self.data_for_one_snapshot[component+'_position'][:,1]
+        plot_z = self.data_for_one_snapshot[component+'_position'][:,2]
+        mass = self.data_for_one_snapshot[component+'_mass']/1e6
+        
+        fig, ax = self._set_up_figure_for_one_map()
+        image    = ax.hist2d(plot_x, plot_y, weights = mass, range = range, vmin = vmin, vmax = vmax, bins = bins, norm = norm, cmap = cmap)
+        fig, ax = self._set_up_figure_for_one_map()
+        colorbar = fig.colorbar(image[3], ax=ax, norm = 'log')
+        z_labels = {'gas':r'$\Sigma_{\rm gas} {\rm \,\, [M_{\odot} \, pc^{-2}]}$','stellar':r'$\Sigma_{\rm *} {\rm \,\, [M_{\odot} \, pc^{-2}]}$'}
+        z_label  = z_labels[component]
+        colorbar.set_label(z_label, fontsize=16)
+        
+
+        for i in theta:
+            rot_x = plot_x * math.cos(i) - plot_y * math.sin(i)
+            rot_y = plot_x * math.sin(i) + plot_y * math.cos(i)
+      
+            range = [[-self.box_size,self.box_size],[-self.box_size,self.box_size]]
+        
+            vmin  = 1e-2
+            vmax  = 1e2
+
+            bins  = 200
+            norm  = LogNorm()
+            cmaps = {'gas':'viridis','stellar':'plasma'}
+       
+            cmap  = copy.copy(matplotlib.cm.get_cmap(cmaps[component]))
+        
+            cmap.set_bad(cmap(0))
+        
+            image    = ax.hist2d(rot_x, rot_y, weights = mass, range = range, vmin = vmin, vmax = vmax, bins = bins, norm = norm, cmap = cmap)
+
+
+
+            if not os.path.exists('./maps'): os.mkdir('./maps')
+            if not os.path.exists('./maps'+'/'+component): os.mkdir('./maps'+'/'+component)
+        
+            save_path  = './maps'+'/'+component+'/z_rotation'+'/'
+            frame_name = 'frame_'+str(snapshot-1).zfill(4)+'_view'+str(i)+'.png'
+            save_file = save_path + frame_name
+            print "open", save_file
+            fig.savefig(save_file)
+            plt.close()
+            print ""
+            del rot_x
+
+        del plot_x, plot_y, plot_z, mass
+    
+    ##############################################################################
+    ##setting up the structure of the plots
+    def _set_up_figure_for_one_map(self, **kwargs):
+        
+        fig = plt.figure(num=1, figsize=(5,5))
+        ax = set_up_generic_axis(fig)
+        rc('text', usetex=False) # JM: usetex=True fails, and needs fixing.
+
+        x_label = r'$x {\rm \,\, [kpc]}$'
+        y_label = r'$y {\rm \,\, [kpc]}$'
+
+        x_range = [-self.box_size,self.box_size]
+        y_range = [-self.box_size,self.box_size]
+
+        ax.set_xlabel(x_label, fontsize=16)
+        ax.set_ylabel(y_label, fontsize=16)
+
+        ax.set_xlim(x_range)
+        ax.set_ylim(y_range)
+
+        return fig,ax
+    
+    ########################################################
+    ##loading the various parts of the data to make a snapshot, i think we habe only really been using gas and stellar mass, stellar is for snapshot > 0 because there are no stars in first snap (t = 0 )
+    def _load_data_for_one_snapshot(self, snapshot, **kwargs):
+        
+        hdf5_file = self.snapshot_list[snapshot]
+        print "LOAD: ", hdf5_file
+        self.data_for_one_snapshot['gas_id']           = np.array(simread.read_block(hdf5_file,      'ID  ', parttype=0))
+        self.data_for_one_snapshot['gas_position']     = np.array(simread.read_block(hdf5_file,      'POS ', parttype=0))
+        self.data_for_one_snapshot['gas_velocity']     = np.array(simread.read_block(hdf5_file,      'VEL ', parttype=0))
+        self.data_for_one_snapshot['gas_mass']         = 1.e10*np.array(simread.read_block(hdf5_file,'MASS', parttype=0))
+        self.data_for_one_snapshot['gas_sfr']          = np.array(simread.read_block(hdf5_file,      'SFR ', parttype=0))
+        if snapshot > 0:
+            self.data_for_one_snapshot['stellar_id']       = np.array(simread.read_block(hdf5_file,      'ID  ', parttype=4))
+            self.data_for_one_snapshot['stellar_position'] = np.array(simread.read_block(hdf5_file,      'POS ', parttype=4))
+            self.data_for_one_snapshot['stellar_velocity'] = np.array(simread.read_block(hdf5_file,      'VEL ', parttype=4))
+            self.data_for_one_snapshot['stellar_mass']     = 1.e10*np.array(simread.read_block(hdf5_file,'MASS', parttype=4))
+        self.data_for_one_snapshot['bh_position']      = np.array(simread.read_block(hdf5_file,      'POS ', parttype=5))
+        self.data_for_one_snapshot['bh_id']            = np.array(simread.read_block(hdf5_file,      'ID  ', parttype=5))
+    
+    ########################################################
+    ##This is to make sure that even when the 2D positions of the black holes switch sides from left and right, they are still identified the same as they were before collision
+    def _order_bh_ids(self, **kwargs):
+        
+        bh_id  = np.asarray(self.data_for_one_snapshot['bh_id'])
+        bh_pos = np.asarray(self.data_for_one_snapshot['bh_position'])
+        ordered_bh_id_mask = np.argsort(bh_id)
+        self.data_for_one_snapshot['bh_id']       = bh_id[ordered_bh_id_mask]
+        self.data_for_one_snapshot['bh_position'] = bh_pos[ordered_bh_id_mask,:]
+        del bh_id, bh_pos, ordered_bh_id_mask
+    
+    ########################################################
+    ##we want the center of our graphs to be the center of the galaxy which is approximated by the location of the central black hole
+    def _center_on_bh(self, snapshot, **kwargs):
+    
+        if self.center == 'primary':
+            self.data_for_one_snapshot['gas_position'] = self.data_for_one_snapshot['gas_position'] - self.data_for_one_snapshot['bh_position'][0,:]
+            if snapshot > 0: self.data_for_one_snapshot['stellar_position'] = self.data_for_one_snapshot['stellar_position'] - self.data_for_one_snapshot['bh_position'][0,:]
+
+        if self.center == 'secondary':
+            self.data_for_one_snapshot['gas_position'] = self.data_for_one_snapshot['gas_position'] - self.data_for_one_snapshot['bh_position'][1,:]
+            if snapshot > 0: self.data_for_one_snapshot['stellar_position'] = self.data_for_one_snapshot['stellar_position'] - self.data_for_one_snapshot['bh_position'][1,:]
+
+        if self.center == 'geometric_center':
+            self.data_for_one_snapshot['gas_position']  = self.data_for_one_snapshot['gas_position'] - (self.data_for_one_snapshot['bh_position'][0,:] + self.data_for_one_snapshot['bh_position'][1,:])/2.
+            if snapshot > 0: self.data_for_one_snapshot['stellar_position'] = self.data_for_one_snapshot['stellar_position'] - (self.data_for_one_snapshot['bh_position'][0,:] + self.data_for_one_snapshot['bh_position'][1,:])/2.
+
+    ########################################################
+
+    def _prepare_snapshot_list(self):
+
+        self.snapshot_list = np.array(glob.glob(self.path+'/snap*_*hdf5'))
+        self.snapshot_list.sort()
+        self.n_snapshots   = (np.asarray(self.snapshot_list)).shape[0]
+
+##############################################################
+
+def set_up_generic_axis(fig):
+    
+    ax = fig.add_subplot(1,1,1)
+    fig.subplots_adjust(left=0.16, right=0.94, top=0.90, bottom=0.2)
+
+    for tick in ax.xaxis.get_major_ticks():
+        tick.label.set_fontsize(fontsize)
+    for tick in ax.yaxis.get_major_ticks():
+        tick.label.set_fontsize(fontsize)
+    
+    return ax
+
+############################### END ###################################
+
+
+
